@@ -267,7 +267,7 @@ class RowMatrixOperations {
     std::unique_ptr<RowMatrix<T>> matrix_res(new RowMatrix<T>(row_a, col_b));
     for (int i = 0; i < row_a; i++) {
       for (int j = 0; j < col_b; j++) {
-        T temp = T();
+        T temp = 0;
         for (int k = 0; k < col_a; k++) {
           temp += matrixA->GetElement(i, k) * matrixB->GetElement(k, j);
         }
@@ -288,7 +288,21 @@ class RowMatrixOperations {
   static std::unique_ptr<RowMatrix<T>> GEMM(const RowMatrix<T> *matrixA, const RowMatrix<T> *matrixB,
                                             const RowMatrix<T> *matrixC) {
     // TODO(P0): Add implementation
-    return Add(Multiply(matrixA, matrixB), matrixC);
+    if (matrixA->GetColumnCount() != matrixB->GetRowCount()) {
+      return std::unique_ptr<RowMatrix<T>>(nullptr);
+    }
+    if (matrixA->GetRowCount() != matrixC->GetRowCount() || matrixB->GetColumnCount() != matrixC->GetColumnCount()) {
+      return std::unique_ptr<RowMatrix<T>>(nullptr);
+    }
+
+    std::unique_ptr<RowMatrix<T>> ptr;
+    std::unique_ptr<RowMatrix<T>> mul;
+    // X = A*B + C
+    mul = Multiply(matrixA, matrixB);
+    const RowMatrix<T> *p1 = mul.get();
+    ptr = Add(p1, matrixC);
+
+    return ptr;
   }
 };
 }  // namespace bustub
