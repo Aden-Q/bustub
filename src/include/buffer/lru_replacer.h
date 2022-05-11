@@ -13,6 +13,7 @@
 #pragma once
 
 #include <list>
+#include <map>
 #include <mutex>  // NOLINT
 #include <vector>
 
@@ -47,6 +48,10 @@ class LRUReplacer : public Replacer {
 
  private:
   // TODO(student): implement me!
+  std::mutex latch_;
+  std::list<frame_id_t> replacer_;
+  std::map<frame_id_t, std::list<frame_id_t>::iterator> lru_map_;
+  size_t num_pages_;
 };
 
 }  // namespace bustub
