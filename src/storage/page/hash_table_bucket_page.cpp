@@ -26,6 +26,23 @@ bool HASH_TABLE_BUCKET_TYPE::GetValue(KeyType key, KeyComparator cmp, std::vecto
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::Insert(KeyType key, ValueType value, KeyComparator cmp) {
+  // If the bucket is full, insertion fails
+  if (IsFull()) {
+    return false;
+  }
+  for (size_t bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
+    if (IsOccupied(bucket_idx)) {
+      // Check whether there is an existing duplicate KV pair
+      if (cmp(key, KeyAt(bucket_idx)) && cmp(value, ValueAt(bucket_idx))) {
+        return false;
+      }
+      continue;
+    }
+    // In this case we can insert the pair into the bucket
+    
+
+  }
+
   return true;
 }
 
@@ -36,11 +53,17 @@ bool HASH_TABLE_BUCKET_TYPE::Remove(KeyType key, ValueType value, KeyComparator 
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 KeyType HASH_TABLE_BUCKET_TYPE::KeyAt(uint32_t bucket_idx) const {
+  if (IsReadable(bucket_idx)) {
+    return array_[bucket_idx].first;
+  }
   return {};
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 ValueType HASH_TABLE_BUCKET_TYPE::ValueAt(uint32_t bucket_idx) const {
+  if (IsReadable(bucket_idx)) {
+    return array_[bucket_idx].second;
+  }
   return {};
 }
 
@@ -49,33 +72,81 @@ void HASH_TABLE_BUCKET_TYPE::RemoveAt(uint32_t bucket_idx) {}
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsOccupied(uint32_t bucket_idx) const {
+  if (bucket_idx >= static_cast<uint32_t>(BUCKET_ARRAY_SIZE)) {
+    // illegal bucket_idx
+    return true;
+  }
+  uint32_t arr_idx = (bucket_idx - 1) / 8;
+  bucket_idx -= 8 * arr_idx;
+  if (occupied_[arr_idx] & (char)pow(2, bucket_idx-1) == 1) {
+    return true;
+  }
   return false;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void HASH_TABLE_BUCKET_TYPE::SetOccupied(uint32_t bucket_idx) {}
+void HASH_TABLE_BUCKET_TYPE::SetOccupied(uint32_t bucket_idx) {
+  if (bucket_idx >= static_cast<uint32_t>(BUCKET_ARRAY_SIZE)) {
+    // illegal bucket_idx
+    return;
+  }
+  uint32_t arr_idx = (bucket_idx - 1) / 8;
+  bucket_idx -= 8 * arr_idx;
+  occupied_[arr_idx] |= (char)pow(2, bucket_idx - 1);
+}
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsReadable(uint32_t bucket_idx) const {
+  if (bucket_idx >= static_cast<uint32_t>(BUCKET_ARRAY_SIZE)) {
+    // illegal bucket_idx
+    return true;
+  }
+  uint32_t arr_idx = (bucket_idx - 1) / 8;
+  bucket_idx -= 8 * arr_idx;
+  if (readable_[arr_idx] & (char)pow(2, bucket_idx - 1) == 1) {
+    return true;
+  }
   return false;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void HASH_TABLE_BUCKET_TYPE::SetReadable(uint32_t bucket_idx) {}
+void HASH_TABLE_BUCKET_TYPE::SetReadable(uint32_t bucket_idx) {
+  if (bucket_idx >= static_cast<uint32_t>(BUCKET_ARRAY_SIZE)) {
+    // illegal bucket_idx
+    return;
+  }
+  uint32_t arr_idx = (bucket_idx - 1) / 8;
+  bucket_idx -= 8 * arr_idx;
+  readable_[arr_idx] |= (char)pow(2, bucket_idx - 1);
+}
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsFull() {
-  return false;
+  for (size_t bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
+    if (!IsOccupied(bucket_idx)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 uint32_t HASH_TABLE_BUCKET_TYPE::NumReadable() {
-  return 0;
+  uint32_t count = 0
+  for (size_t bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
+    if (!IsOccupied(bucket_idx)) {
+      break;
+    }
+    if (IsReadable(bucket_idx)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsEmpty() {
-  return false;
+  return !IsOccupied(0);
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
