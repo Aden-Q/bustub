@@ -40,7 +40,6 @@ bool HASH_TABLE_BUCKET_TYPE::Insert(KeyType key, ValueType value, KeyComparator 
     }
     // In this case we can insert the pair into the bucket
     
-
   }
 
   return true;
@@ -105,6 +104,7 @@ bool HASH_TABLE_BUCKET_TYPE::IsReadable(uint32_t bucket_idx) const {
   bucket_idx -= 8 * arr_idx;
   if (readable_[arr_idx] & (char)pow(2, bucket_idx - 1) == 1) {
     return true;
+    this->value
   }
   return false;
 }
