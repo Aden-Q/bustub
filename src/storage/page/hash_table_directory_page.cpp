@@ -27,9 +27,7 @@ void HashTableDirectoryPage::SetLSN(lsn_t lsn) { lsn_ = lsn; }
 
 uint32_t HashTableDirectoryPage::GetGlobalDepth() { return global_depth_; }
 
-uint32_t HashTableDirectoryPage::GetGlobalDepthMask() {
-  return static_cast<uint32_t>(0xffffff) >> (32 - global_depth_);
-}
+uint32_t HashTableDirectoryPage::GetGlobalDepthMask() { return (static_cast<uint32_t>(0x1) << global_depth_) - 1; }
 
 void HashTableDirectoryPage::IncrGlobalDepth() {
   // Perform the resize operation, double the directory size and
@@ -43,7 +41,7 @@ void HashTableDirectoryPage::IncrGlobalDepth() {
   global_depth_++;
 }
 
-void HashTableDirectoryPage::DecrGlobalDepth() { 
+void HashTableDirectoryPage::DecrGlobalDepth() {
   assert(global_depth_ > 0);
   global_depth_--;
 }
@@ -75,6 +73,10 @@ uint32_t HashTableDirectoryPage::GetLocalDepth(uint32_t bucket_idx) {
   return static_cast<uint32_t>(local_depths_[bucket_idx]);
 }
 
+uint32_t HashTableDirectoryPage::GetLocalDepthMask(uint32_t bucket_idx) {
+  return (static_cast<uint32_t>(0x1) << GetLocalDepth(bucket_idx)) - 1;
+}
+
 void HashTableDirectoryPage::SetLocalDepth(uint32_t bucket_idx, uint8_t local_depth) {
   assert(local_depth <= global_depth_);
   local_depths_[bucket_idx] = local_depth;
@@ -82,7 +84,7 @@ void HashTableDirectoryPage::SetLocalDepth(uint32_t bucket_idx, uint8_t local_de
 
 void HashTableDirectoryPage::IncrLocalDepth(uint32_t bucket_idx) {
   assert(local_depths_[bucket_idx] < global_depth_);
-  local_depths_[bucket_idx]++; 
+  local_depths_[bucket_idx]++;
 }
 
 void HashTableDirectoryPage::DecrLocalDepth(uint32_t bucket_idx) {

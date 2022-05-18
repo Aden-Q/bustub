@@ -27,6 +27,8 @@ bool HASH_TABLE_BUCKET_TYPE::GetValue(KeyType key, KeyComparator cmp, std::vecto
     if (IsReadable(bucket_idx) && cmp(key, KeyAt(bucket_idx)) == 0) {
       result->push_back(ValueAt(bucket_idx));
       res = true;
+    } else if (!IsOccupied(bucket_idx)) {
+      break;
     }
   }
   return res;
@@ -38,10 +40,9 @@ bool HASH_TABLE_BUCKET_TYPE::Insert(KeyType key, ValueType value, KeyComparator 
   if (IsFull()) {
     return false;
   }
-  size_t bucket_idx = 0;
   size_t insert_idx = BUCKET_ARRAY_SIZE;
   // Check duplicate, insertion in one pass
-  for (bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
+  for (size_t bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
     if (IsReadable(bucket_idx)) {
       if (cmp(key, KeyAt(bucket_idx)) == 0 && value == ValueAt(bucket_idx)) {
         return false;
@@ -51,6 +52,7 @@ bool HASH_TABLE_BUCKET_TYPE::Insert(KeyType key, ValueType value, KeyComparator 
       // no matter whether it is occupied or not
       // only update once because we only need to find the first available slot for insertion
       insert_idx = bucket_idx;
+      break;
     }
   }
   if (insert_idx == BUCKET_ARRAY_SIZE) {
@@ -60,9 +62,7 @@ bool HASH_TABLE_BUCKET_TYPE::Insert(KeyType key, ValueType value, KeyComparator 
   }
   array_[insert_idx] = std::make_pair(key, value);
   SetReadable(insert_idx);
-  if (!IsOccupied(insert_idx)) {
-    SetOccupied(insert_idx);
-  }
+  SetOccupied(insert_idx);
   return true;
 }
 
