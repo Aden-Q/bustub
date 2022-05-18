@@ -10,11 +10,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "storage/page/hash_table_bucket_page.h"
+#include <string.h>
+#include <bitset>
+#include <cmath>
+
 #include "common/logger.h"
 #include "common/util/hash_util.h"
 #include "storage/index/generic_key.h"
 #include "storage/index/hash_comparator.h"
+#include "storage/page/hash_table_bucket_page.h"
 #include "storage/table/tmp_tuple.h"
 
 namespace bustub {
@@ -30,23 +34,54 @@ bool HASH_TABLE_BUCKET_TYPE::Insert(KeyType key, ValueType value, KeyComparator 
   if (IsFull()) {
     return false;
   }
-  for (size_t bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
+  size_t bucket_idx = 0;
+  for (; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
     if (IsOccupied(bucket_idx)) {
-      // Check whether there is an existing duplicate KV pair
-      if (cmp(key, KeyAt(bucket_idx)) && cmp(value, ValueAt(bucket_idx))) {
+      // Check readability
+      if (!IsReadable(bucket_idx)) {
+        // If occupied but not readable, then insert into the slot
+        // memset(array_ + bucket_idx, 0, sizeof(MappingType));
+        array_[bucket_idx] = std::make_pair(key, value);
+        SetReadable(bucket_idx);
+        return true;
+      }
+      // If occupied and readable, check whether there is an existing duplicate KV pair
+      if (cmp(key, KeyAt(bucket_idx)) == 0) {
         return false;
       }
-      continue;
+    } else {
+      // In this case we can insert the pair into the first slow that is not occupied
+      // memset(array_ + bucket_idx, 0, sizeof(MappingType));
+      array_[bucket_idx] = std::make_pair(key, value);
+      SetOccupied(bucket_idx);
+      SetReadable(bucket_idx);
+      return true;
     }
-    // In this case we can insert the pair into the bucket
-    
   }
-
-  return true;
+  return false;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::Remove(KeyType key, ValueType value, KeyComparator cmp) {
+  if (IsEmpty()) {
+    return false;
+  }
+  size_t bucket_idx = 0;
+  for (; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
+    if (!IsOccupied(bucket_idx)) {
+      return false;
+    }
+    if (!IsReadable(bucket_idx)) {
+      continue;
+    }
+    if (cmp(key, KeyAt(bucket_idx)) == 0) {
+      // The entries to be deleted is found
+      // Reset the readable_ bitmap
+      uint32_t arr_idx = static_cast<uint32_t>(bucket_idx / 8);
+      readable_[arr_idx] ^= static_cast<char>(std::pow(2, bucket_idx - 8 * arr_idx));
+      return true;
+    }
+  }
   return false;
 }
 
@@ -73,11 +108,11 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsOccupied(uint32_t bucket_idx) const {
   if (bucket_idx >= static_cast<uint32_t>(BUCKET_ARRAY_SIZE)) {
     // illegal bucket_idx
-    return true;
+    return false;
   }
-  uint32_t arr_idx = (bucket_idx - 1) / 8;
+  uint32_t arr_idx = static_cast<uint32_t>(bucket_idx / 8);
   bucket_idx -= 8 * arr_idx;
-  if (occupied_[arr_idx] & (char)pow(2, bucket_idx-1) == 1) {
+  if ((occupied_[arr_idx] & static_cast<char>(pow(2, bucket_idx))) != 0) {
     return true;
   }
   return false;
@@ -89,9 +124,9 @@ void HASH_TABLE_BUCKET_TYPE::SetOccupied(uint32_t bucket_idx) {
     // illegal bucket_idx
     return;
   }
-  uint32_t arr_idx = (bucket_idx - 1) / 8;
+  uint32_t arr_idx = static_cast<uint32_t>(bucket_idx / 8);
   bucket_idx -= 8 * arr_idx;
-  occupied_[arr_idx] |= (char)pow(2, bucket_idx - 1);
+  occupied_[arr_idx] |= static_cast<char>(pow(2, bucket_idx));
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
@@ -100,11 +135,10 @@ bool HASH_TABLE_BUCKET_TYPE::IsReadable(uint32_t bucket_idx) const {
     // illegal bucket_idx
     return true;
   }
-  uint32_t arr_idx = (bucket_idx - 1) / 8;
+  uint32_t arr_idx = static_cast<uint32_t>(bucket_idx / 8);
   bucket_idx -= 8 * arr_idx;
-  if (readable_[arr_idx] & (char)pow(2, bucket_idx - 1) == 1) {
+  if ((readable_[arr_idx] & static_cast<char>(std::pow(2, bucket_idx))) != 0) {
     return true;
-    this->value
   }
   return false;
 }
@@ -115,9 +149,9 @@ void HASH_TABLE_BUCKET_TYPE::SetReadable(uint32_t bucket_idx) {
     // illegal bucket_idx
     return;
   }
-  uint32_t arr_idx = (bucket_idx - 1) / 8;
+  uint32_t arr_idx = static_cast<uint32_t>(bucket_idx / 8);
   bucket_idx -= 8 * arr_idx;
-  readable_[arr_idx] |= (char)pow(2, bucket_idx - 1);
+  readable_[arr_idx] |= static_cast<char>(std::pow(2, bucket_idx));
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
@@ -132,7 +166,7 @@ bool HASH_TABLE_BUCKET_TYPE::IsFull() {
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 uint32_t HASH_TABLE_BUCKET_TYPE::NumReadable() {
-  uint32_t count = 0
+  uint32_t count = 0;
   for (size_t bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
     if (!IsOccupied(bucket_idx)) {
       break;
