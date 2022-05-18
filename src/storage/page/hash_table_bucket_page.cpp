@@ -10,8 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <string.h>
-#include <bitset>
 #include <cmath>
 
 #include "common/logger.h"
@@ -35,30 +33,31 @@ bool HASH_TABLE_BUCKET_TYPE::Insert(KeyType key, ValueType value, KeyComparator 
     return false;
   }
   size_t bucket_idx = 0;
-  for (; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
-    if (IsOccupied(bucket_idx)) {
-      // Check readability
-      if (!IsReadable(bucket_idx)) {
-        // If occupied but not readable, then insert into the slot
-        // memset(array_ + bucket_idx, 0, sizeof(MappingType));
-        array_[bucket_idx] = std::make_pair(key, value);
-        SetReadable(bucket_idx);
-        return true;
-      }
-      // If occupied and readable, check whether there is an existing duplicate KV pair
-      if (cmp(key, KeyAt(bucket_idx)) == 0) {
+  size_t insert_idx = BUCKET_ARRAY_SIZE;
+  // Check duplicate, insertion in one pass
+  for (bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
+    if (IsReadable(bucket_idx)) {
+      if (cmp(key, KeyAt(bucket_idx)) == 0 && value == ValueAt(bucket_idx)) {
         return false;
       }
-    } else {
-      // In this case we can insert the pair into the first slow that is not occupied
-      // memset(array_ + bucket_idx, 0, sizeof(MappingType));
-      array_[bucket_idx] = std::make_pair(key, value);
-      SetOccupied(bucket_idx);
-      SetReadable(bucket_idx);
-      return true;
+    } else if (insert_idx == BUCKET_ARRAY_SIZE) {
+      // Update the index for an available slot (in the case that it is not readable)
+      // no matter whether it is occupied or not
+      // only update once because we only need to find the first available slot for insertion
+      insert_idx = bucket_idx;
     }
   }
-  return false;
+  if (insert_idx == BUCKET_ARRAY_SIZE) {
+    // If no slot is found, meaning that all slots are readable
+    // we can insert a new KV pari in this case
+    return false;
+  }
+  array_[insert_idx] = std::make_pair(key, value);
+  SetReadable(insert_idx);
+  if (!IsOccupied(insert_idx)) {
+    SetOccupied(insert_idx);
+  }
+  return true;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
@@ -74,7 +73,7 @@ bool HASH_TABLE_BUCKET_TYPE::Remove(KeyType key, ValueType value, KeyComparator 
     if (!IsReadable(bucket_idx)) {
       continue;
     }
-    if (cmp(key, KeyAt(bucket_idx)) == 0) {
+    if (cmp(key, KeyAt(bucket_idx)) == 0 && value == ValueAt(bucket_idx)) {
       // The entries to be deleted is found
       // Reset the readable_ bitmap
       uint32_t arr_idx = static_cast<uint32_t>(bucket_idx / 8);
@@ -112,10 +111,7 @@ bool HASH_TABLE_BUCKET_TYPE::IsOccupied(uint32_t bucket_idx) const {
   }
   uint32_t arr_idx = static_cast<uint32_t>(bucket_idx / 8);
   bucket_idx -= 8 * arr_idx;
-  if ((occupied_[arr_idx] & static_cast<char>(pow(2, bucket_idx))) != 0) {
-    return true;
-  }
-  return false;
+  return (occupied_[arr_idx] & static_cast<char>(pow(2, bucket_idx))) != 0;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
@@ -137,10 +133,7 @@ bool HASH_TABLE_BUCKET_TYPE::IsReadable(uint32_t bucket_idx) const {
   }
   uint32_t arr_idx = static_cast<uint32_t>(bucket_idx / 8);
   bucket_idx -= 8 * arr_idx;
-  if ((readable_[arr_idx] & static_cast<char>(std::pow(2, bucket_idx))) != 0) {
-    return true;
-  }
-  return false;
+  return (readable_[arr_idx] & static_cast<char>(std::pow(2, bucket_idx))) != 0;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
