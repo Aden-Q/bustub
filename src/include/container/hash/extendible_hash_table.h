@@ -129,7 +129,7 @@ class ExtendibleHashTable {
   HashTableDirectoryPage *FetchDirectoryPage();
 
   /**
-   * Fetches the a bucket page from the buffer pool manager using the bucket's page_id.
+   * Fetches the bucket page from the buffer pool manager using the bucket's page_id.
    *
    * @param bucket_page_id the page_id to fetch
    * @return a pointer to a bucket page
@@ -166,6 +166,7 @@ class ExtendibleHashTable {
   void Merge(Transaction *transaction, const KeyType &key, const ValueType &value);
 
   // member variables
+  const std::string &name_;
   page_id_t directory_page_id_;
   BufferPoolManager *buffer_pool_manager_;
   KeyComparator comparator_;

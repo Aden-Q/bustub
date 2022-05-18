@@ -46,7 +46,7 @@ uint32_t HashTableDirectoryPage::Size() { return static_cast<uint32_t>(std::pow(
 
 bool HashTableDirectoryPage::CanShrink() {
   for (uint32_t curr_idx = 0; curr_idx < Size(); curr_idx++) {
-    if (local_depths_[curr_idx] == global_depth_) {
+    if (static_cast<uint32_t>(local_depths_[curr_idx]) == global_depth_) {
       return false;
     }
   }

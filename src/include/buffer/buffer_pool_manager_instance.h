@@ -101,7 +101,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
   void FlushAllPgsImp() override;
 
   /**
-   * Allocate a page on disk.∂
+   * Allocate a page on disk.
    * @return the id of the allocated page
    */
   page_id_t AllocatePage();
