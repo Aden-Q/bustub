@@ -13,7 +13,6 @@
 #include "storage/page/hash_table_directory_page.h"
 #include <algorithm>
 #include <bitset>
-#include <cmath>
 #include <unordered_map>
 #include "common/logger.h"
 
@@ -32,9 +31,22 @@ uint32_t HashTableDirectoryPage::GetGlobalDepthMask() {
   return static_cast<uint32_t>(0xffffff) >> (32 - global_depth_);
 }
 
-void HashTableDirectoryPage::IncrGlobalDepth() { global_depth_++; }
+void HashTableDirectoryPage::IncrGlobalDepth() {
+  // Perform the resize operation, double the directory size and
+  // populate the local variables
+  // Make sure that the global depth does not exceed the maximum
+  assert(Size() < DIRECTORY_ARRAY_SIZE);
+  // Populate the local_depths_ array
+  std::memcpy(local_depths_ + Size(), local_depths_, Size() * sizeof(uint8_t));
+  // Populate the bucket_page_ids_ array
+  std::memcpy(bucket_page_ids_ + Size(), bucket_page_ids_, Size() * sizeof(page_id_t));
+  global_depth_++;
+}
 
-void HashTableDirectoryPage::DecrGlobalDepth() { global_depth_--; }
+void HashTableDirectoryPage::DecrGlobalDepth() { 
+  assert(global_depth_ > 0);
+  global_depth_--;
+}
 
 page_id_t HashTableDirectoryPage::GetBucketPageId(uint32_t bucket_idx) { return bucket_page_ids_[bucket_idx]; }
 
@@ -42,7 +54,13 @@ void HashTableDirectoryPage::SetBucketPageId(uint32_t bucket_idx, page_id_t buck
   bucket_page_ids_[bucket_idx] = bucket_page_id;
 }
 
-uint32_t HashTableDirectoryPage::Size() { return static_cast<uint32_t>(std::pow(2, global_depth_)); }
+uint32_t HashTableDirectoryPage::GetSplitImageIndex(uint32_t bucket_idx) {
+  // E.g. If the local depth is 3, we get the third bit of bucket_idx
+  // 0...0100 ^ bucket_idx
+  return bucket_idx ^ GetLocalHighBit(bucket_idx);
+}
+
+uint32_t HashTableDirectoryPage::Size() { return static_cast<uint32_t>(1) << global_depth_; }
 
 bool HashTableDirectoryPage::CanShrink() {
   for (uint32_t curr_idx = 0; curr_idx < Size(); curr_idx++) {
@@ -58,15 +76,26 @@ uint32_t HashTableDirectoryPage::GetLocalDepth(uint32_t bucket_idx) {
 }
 
 void HashTableDirectoryPage::SetLocalDepth(uint32_t bucket_idx, uint8_t local_depth) {
+  assert(local_depth <= global_depth_);
   local_depths_[bucket_idx] = local_depth;
 }
 
-void HashTableDirectoryPage::IncrLocalDepth(uint32_t bucket_idx) { local_depths_[bucket_idx]++; }
+void HashTableDirectoryPage::IncrLocalDepth(uint32_t bucket_idx) {
+  assert(local_depths_[bucket_idx] < global_depth_);
+  local_depths_[bucket_idx]++; 
+}
 
-void HashTableDirectoryPage::DecrLocalDepth(uint32_t bucket_idx) { local_depths_[bucket_idx]--; }
+void HashTableDirectoryPage::DecrLocalDepth(uint32_t bucket_idx) {
+  // Local depth decrease happens after merging
+  assert(local_depths_[bucket_idx] > 0);
+  local_depths_[bucket_idx]--;
+}
 
 uint32_t HashTableDirectoryPage::GetLocalHighBit(uint32_t bucket_idx) {
-  return bucket_idx >> local_depths_[bucket_idx];
+  // Set the (local depth -1)'s bit to 1 and return the result
+  // E.g. if the local depth is 3,
+  // return 0b00...0100
+  return static_cast<uint32_t>(2) << (local_depths_[bucket_idx] - 1);
 }
 
 /**

@@ -67,28 +67,38 @@ HashTableDirectoryPage *HASH_TABLE_TYPE::FetchDirectoryPage() {
     // allocate a disk frame for it, and bring the frame into buffer pool
     page = buffer_pool_manager_->NewPage(&directory_page_id_);
     // check whether the page is successfully allocated on disk
-    assert(page != nullptr);
+    if (page == nullptr) {
+      return nullptr;
+    }
     dir_page = reinterpret_cast<HashTableDirectoryPage *>(page->GetData());
+    assert(dir_page != nullptr);
     // Initialize the directory page
     dir_page->SetPageId(directory_page_id_);
     // Create a bucket page and let the first slot of directory point to it
     page = nullptr;
     page = buffer_pool_manager_->NewPage(&bucket_page_id);
     // check whether the page is successfully allocated on disk
-    assert(page != nullptr);
+    if (page == nullptr) {
+      return nullptr;
+    }
     bucket_page = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(page->GetData());
+    assert(bucket_page != nullptr);
     // Set bucket page id in the directory page
     dir_page->SetBucketPageId(static_cast<uint32_t>(0), bucket_page_id);
     // To this step, two new pages have been flushed onto disk.
     // The new bucket page can be unpinned
-    buffer_pool_manager_->UnpinPage(bucket_page_id, false);
+    assert(buffer_pool_manager_->UnpinPage(bucket_page_id, false, nullptr));
   } else {
     // In this case, the directory page has been allocated previously
     // so we just need to call the buffer manager to fetch the page into
     // the buffer pool
     page = buffer_pool_manager_->FetchPage(directory_page_id_);
-    assert(page != nullptr);
+    // Check whether the page is fetched from the buffer pool successfully
+    if (page == nullptr) {
+      return nullptr;
+    }
     dir_page = reinterpret_cast<HashTableDirectoryPage *>(page->GetData());
+    assert(dir_page != nullptr);
   }
   return dir_page;
 }
@@ -98,8 +108,12 @@ HASH_TABLE_BUCKET_TYPE *HASH_TABLE_TYPE::FetchBucketPage(page_id_t bucket_page_i
   HASH_TABLE_BUCKET_TYPE *bucket_page = nullptr;
   Page *page = nullptr;
   page = buffer_pool_manager_->FetchPage(bucket_page_id);
-  assert(page != nullptr);
+  if (page == nullptr) {
+    // Page fetch fails
+    return nullptr;
+  }
   bucket_page = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(page->GetData());
+  assert(bucket_page != nullptr);
   return bucket_page;
 }
 
@@ -110,9 +124,28 @@ template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_TYPE::GetValue(Transaction *transaction, const KeyType &key, std::vector<ValueType> *result) {
   bool res = false;
   HashTableDirectoryPage *dir_page = nullptr;
+  HASH_TABLE_BUCKET_TYPE *bucket_page = nullptr;
+  page_id_t bucket_page_id = 0;
   // Fetch the directory page from the buffer pool
-
-  return false;
+  dir_page = FetchDirectoryPage();
+  // Check whether the directory page has bee fetched from buffer pool successfully or not
+  if (dir_page == nullptr) {
+    return false;
+  }
+  assert(dir_page != nullptr);
+  // Fetch the bucket page
+  bucket_page_id = KeyToPageId(key, dir_page);
+  bucket_page = FetchBucketPage(bucket_page_id);
+  if (bucket_page == nullptr) {
+    return false;
+  }
+  assert(bucket_page != nullptr);
+  // Get values
+  res = bucket_page->GetValue(key, comparator_, result);
+  // Unpin the directory page and the bucket page
+  assert(buffer_pool_manager_->UnpinPage(dir_page->GetPageId(), false, nullptr));
+  assert(buffer_pool_manager_->UnpinPage(bucket_page_id, false, nullptr));
+  return res;
 }
 
 /*****************************************************************************
@@ -120,12 +153,101 @@ bool HASH_TABLE_TYPE::GetValue(Transaction *transaction, const KeyType &key, std
  *****************************************************************************/
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const ValueType &value) {
-  return false;
+  bool res = false;
+  HashTableDirectoryPage *dir_page = nullptr;
+  HASH_TABLE_BUCKET_TYPE *bucket_page = nullptr;
+  page_id_t bucket_page_id = 0;
+  // Fetch the directory page from the buffer pool
+  dir_page = FetchDirectoryPage();
+  // If fail to fetch the directory page, then insertion fails
+  if (dir_page == nullptr) {
+    return false;
+  }
+  assert(dir_page != nullptr);
+  // Fetch the bucket page for insertion
+  bucket_page_id = KeyToPageId(key, dir_page);
+  bucket_page = FetchBucketPage(bucket_page_id);
+  // If fail to fetch the bucket page, then insertion fails
+  if (bucket_page == nullptr) {
+    return false;
+  }
+  assert(bucket_page != nullptr);
+  // Insert the KV pair into the bucket
+  // First check whether the bucket is full
+  if (!bucket_page->IsFull()) {
+    // If is not full, insert into the current bucket
+    res = bucket_page->Insert(key, value, comparator_);
+    assert(res);
+    assert(buffer_pool_manager_->UnpinPage(dir_page->GetPageId(), false, nullptr));
+    // After insertion, the bucket page is updated, so it is marked as a dirty page
+    assert(buffer_pool_manager_->UnpinPage(bucket_page_id, true, nullptr));
+  } else {
+    // In the case of a bucket page is full,
+    // perform a split insertion recursively
+    // Unpin the pages after the split insertion
+    // because we hope that the directory page and the bucket page
+    // are still in the buffer pool, to avoid additional page
+    // movements between memory and disk
+    // We can unpin the old bucket page because it may not be
+    // the target page for SplitInsert, it makes no sense
+    // to always stitch it into the buffer pool
+    assert(buffer_pool_manager_->UnpinPage(bucket_page_id, false, nullptr));
+    res = SplitInsert(transaction, key, value);
+    assert(buffer_pool_manager_->UnpinPage(dir_page->GetPageId(), false, nullptr));
+  }
+  return res;
 }
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, const ValueType &value) {
-  return false;
+  HashTableDirectoryPage *dir_page = nullptr;
+  HASH_TABLE_BUCKET_TYPE *bucket_page = nullptr;
+  HASH_TABLE_BUCKET_TYPE *split_bucket_page = nullptr;
+  uint32_t bucket_idx = 0;
+  page_id_t bucket_page_id = 0;
+  uint32_t split_bucket_idx = 0;
+  page_id_t split_bucket_page_id = 0;
+  // Fetch the bucket page for insertion
+  bucket_idx = KeyToDirectoryIndex(key, dir_page);
+  bucket_page_id = KeyToPageId(key, dir_page);
+  bucket_page = FetchBucketPage(bucket_page_id);
+  // If fail to fetch the bucket page, then insertion fails
+  if (dir_page == nullptr) {
+    return false;
+  }
+  assert(bucket_page != nullptr);
+  // Split the current bucket
+  if (dir_page->GetLocalDepth(bucket_idx) < dir_page->GetGlobalDepth()) {
+    // In the first case, the local depth of the bucket is strictly less than the global depth,
+    // we do not increase the global depth in the first round, but do the following instead:
+    // 1. Increment the local depth of the target bucket
+    // 2. Allocate a new page in the buffer pool and cast it into a bucket page
+    // 3. Update the hash table directory
+    // 4. Redistribute the KV pairs
+    dir_page->IncrLocalDepth(bucket_idx);
+  } else {
+    // In this case, we need to double the directory size
+    // we do the following
+    // 1. Increment the global depth of the hash table
+    // 2. Increment the local depth of the old bucket page
+    // 3. Allocate a new page in the buffer pool and cast it into a bucket page
+    // 4. Update the hash table directory
+    // 5. Redistribute the KV pairs
+    dir_page->IncrGlobalDepth();
+    dir_page->IncrLocalDepth(bucket_idx);
+  }
+  // In either case, the hash table page, the bucket page, and
+  // the split bucket page all become dirty pages
+  // Unpin after insertion
+  // Unpin the directory page is necessary because we need to set the dirty flag
+  buffer_pool_manager_->UnpinPage(dir_page->GetPageId(), true, nullptr);
+  buffer_pool_manager_->UnpinPage(bucket_page_id, true, nullptr);
+  buffer_pool_manager_->UnpinPage(split_bucket_page_id, true, nullptr);
+  // Recursively call Insert after split,
+  // the result is false if insertion fails
+  // (either hash table error or buffer pool error)
+  // the result is true if insertion succeeds
+  return Insert(transaction, key, value);
 }
 
 /*****************************************************************************
