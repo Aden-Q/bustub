@@ -210,10 +210,11 @@ bool HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, 
     // If the bucket page becomes not full, apply normal insertion
     // this situation may be due to some intermediate deletions before
     // acquiring the write latch
+    bool res = bucket_page->Insert(key, value, comparator_);
     assert(buffer_pool_manager_->UnpinPage(dir_page->GetPageId(), false, nullptr));
-    assert(buffer_pool_manager_->UnpinPage(bucket_page_id, false, nullptr));
+    assert(buffer_pool_manager_->UnpinPage(bucket_page_id, true, nullptr));
     table_latch_.WUnlock();
-    return Insert(transaction, key, value);
+    return res;
   }
   // Split the current bucket
   if (dir_page->GetLocalDepth(bucket_idx) < dir_page->GetGlobalDepth()) {
