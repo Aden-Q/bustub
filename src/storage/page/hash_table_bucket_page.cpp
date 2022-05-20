@@ -51,7 +51,11 @@ bool HASH_TABLE_BUCKET_TYPE::Insert(KeyType key, ValueType value, KeyComparator 
       // Update the index for an available slot (in the case that it is not readable)
       // no matter whether it is occupied or not
       // only update once because we only need to find the first available slot for insertion
+      // do not break immediately because duplicate keys may appear after the slot
+      // This bug takes a loooooong time to find and fix it!
       insert_idx = bucket_idx;
+    }
+    if (!IsOccupied(bucket_idx)) {
       break;
     }
   }
@@ -72,6 +76,9 @@ bool HASH_TABLE_BUCKET_TYPE::Remove(KeyType key, ValueType value, KeyComparator 
     return false;
   }
   for (size_t bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
+    if (!IsOccupied(bucket_idx)) {
+      break;
+    }
     if (!IsReadable(bucket_idx)) {
       continue;
     }
@@ -183,6 +190,9 @@ uint32_t HASH_TABLE_BUCKET_TYPE::NumReadable() {
 template <typename KeyType, typename ValueType, typename KeyComparator>
 bool HASH_TABLE_BUCKET_TYPE::IsEmpty() {
   for (size_t bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
+    if (!IsOccupied(bucket_idx)) {
+      break;
+    }
     if (IsReadable(bucket_idx)) {
       return false;
     }
