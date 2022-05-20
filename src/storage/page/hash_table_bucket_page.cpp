@@ -72,10 +72,6 @@ bool HASH_TABLE_BUCKET_TYPE::Remove(KeyType key, ValueType value, KeyComparator 
     return false;
   }
   for (size_t bucket_idx = 0; bucket_idx < BUCKET_ARRAY_SIZE; bucket_idx++) {
-    if (!IsOccupied(bucket_idx)) {
-      // Find the first unoccupied slot
-      return false;
-    }
     if (!IsReadable(bucket_idx)) {
       continue;
     }
