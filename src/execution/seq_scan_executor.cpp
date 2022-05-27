@@ -30,7 +30,7 @@ void SeqScanExecutor::Init() {
 
 bool SeqScanExecutor::Next(Tuple *tuple, RID *rid) {
   // If no more tuples, return false
-  assert(table_info_ != nullptr && table_itr_ != nullptr);
+  BUSTUB_ASSERT(table_info_ != nullptr && table_itr_ != nullptr, "Either the table info or iterator is nullptr.");
   TableHeap *table_ = table_info_->table_.get();
   if (*table_itr_ == table_->End()) {
     return false;
@@ -49,6 +49,7 @@ bool SeqScanExecutor::Next(Tuple *tuple, RID *rid) {
   // Populate the tuple (fill the content with the current row)
   *tuple = Tuple(vals, output_schema);
   *rid = (*table_itr_)->GetRid();
+  (*table_itr_)++;
   // Evaluate the (optional) predicate given by the query plan node
   const AbstractExpression *predicate = plan_->GetPredicate();
   if (predicate != nullptr && !predicate->Evaluate(tuple, output_schema).GetAs<bool>()) {
