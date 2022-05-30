@@ -37,8 +37,8 @@ bool SeqScanExecutor::Next(Tuple *tuple, RID *rid) {
   }
   // Produce the next tuple
   std::vector<Value> vals;
-  const Schema *output_schema = plan_->OutputSchema();
-  Schema &schema = table_info_->schema_;
+  const Schema *output_schema = GetOutputSchema();
+  const Schema &schema = table_info_->schema_;
   vals.reserve(output_schema->GetColumnCount());
   // For each column in the output schema, used the table iterator
   // given by the query plan, to evaluate a column value for that tuple

@@ -28,10 +28,9 @@ void DeleteExecutor::Init() {
   // Query table and indexes metadata by OID
   table_info_ = exec_ctx_->GetCatalog()->GetTable(plan_->TableOid());
   index_info_vec_ = exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
-  // If there is a child executor (at most one child plan is allowed), init the child
-  if (child_executor_ != nullptr) {
-    child_executor_->Init();
-  }
+  // Init the child
+  BUSTUB_ASSERT(child_executor_ != nullptr, "Child executor is null.");
+  child_executor_->Init();
 }
 
 bool DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
