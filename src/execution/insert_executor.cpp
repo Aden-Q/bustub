@@ -36,12 +36,12 @@ void InsertExecutor::Init() {
 
 bool InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   // Query table to be inserted into
+  BUSTUB_ASSERT(table_info_ != nullptr, "Table info is a nullptr.");
   TableHeap *table_ = table_info_->table_.get();
-  BUSTUB_ASSERT(table_info_ != nullptr, "The table info is nullptr.");
   const Schema &schema = table_info_->schema_;
   Tuple tuple_temp;
   RID rid_temp;
-  std::vector<Tuple> tuples;
+  std::vector<std::pair<Tuple, RID>> tuples;
   // Query the plan to check the type of insert
   if (plan_->IsRawInsert()) {
     // Raw insert
@@ -49,24 +49,24 @@ bool InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
     // Read the tuples to be inserted
     for (auto &vals : plan_->RawValues()) {
       tuple_temp = Tuple(vals, &schema);
-      tuples.push_back(tuple_temp);
+      tuples.emplace_back(tuple_temp, *rid);
     }
   } else {
     // Insert from a sub-query
     // First execute the child plan
     // Get the results from the child executor
     while (child_executor_->Next(&tuple_temp, &rid_temp)) {
-      tuples.push_back(tuple_temp);
+      tuples.emplace_back(tuple_temp, rid_temp);
     }
   }
   // Insert into the table
   for (auto &next_tuple : tuples) {
-    table_->InsertTuple(next_tuple, rid, exec_ctx_->GetTransaction());
+    table_->InsertTuple(next_tuple.first, &next_tuple.second, exec_ctx_->GetTransaction());
     // Update indexes for each inserted row
     for (auto index_info : index_info_vec_) {
       index_info->index_->InsertEntry(
-          next_tuple.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
-          *rid, exec_ctx_->GetTransaction());
+          next_tuple.first.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
+          next_tuple.second, exec_ctx_->GetTransaction());
     }
   }
   return false;

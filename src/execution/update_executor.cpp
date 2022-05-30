@@ -17,11 +17,38 @@ namespace bustub {
 
 UpdateExecutor::UpdateExecutor(ExecutorContext *exec_ctx, const UpdatePlanNode *plan,
                                std::unique_ptr<AbstractExecutor> &&child_executor)
-    : AbstractExecutor(exec_ctx) {}
+    : AbstractExecutor(exec_ctx) {
+  plan_ = plan;
+  table_info_ = nullptr;
+  child_executor_ = std::move(child_executor);
+}
 
-void UpdateExecutor::Init() {}
+void UpdateExecutor::Init() {
+  // Query table and indexes metadata by OID
+  table_info_ = exec_ctx_->GetCatalog()->GetTable(plan_->TableOid());
+  index_info_vec_ = exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
+  // If there is a child executor (at most one child plan is allowed), init the child
+  if (child_executor_ != nullptr) {
+    child_executor_->Init();
+  }
+}
 
-bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) { return false; }
+bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
+  // Query table to be inserted into
+  BUSTUB_ASSERT(table_info_ != nullptr, "Table info is a nullptr.");
+  TableHeap *table_ = table_info_->table_.get();
+  // Query table schema
+  const Schema &schema = table_info_->schema_;
+  Tuple tuple_temp;
+  RID rid_temp;
+  std::vector<std::pair<Tuple, RID>> tuples;
+  // Get the new tuples from a child executor
+  while (child_executor_->Next(&tuple_temp, &rid_temp)) {
+    tuples.emplace_back(tuple_temp, rid_temp);
+  }
+
+  return false;
+}
 
 Tuple UpdateExecutor::GenerateUpdatedTuple(const Tuple &src_tuple) {
   const auto &update_attrs = plan_->GetUpdateAttr();
