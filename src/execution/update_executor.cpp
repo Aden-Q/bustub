@@ -42,7 +42,7 @@ bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   Tuple tuple_temp;
   RID rid_temp;
   std::vector<std::pair<Tuple, RID>> tuples;
-  // Get the new tuples from a child executor
+  // Get tuples to be updated from a child executor
   while (child_executor_->Next(&tuple_temp, &rid_temp)) {
     tuples.emplace_back(tuple_temp, rid_temp);
   }
