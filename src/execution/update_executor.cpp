@@ -46,7 +46,23 @@ bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   while (child_executor_->Next(&tuple_temp, &rid_temp)) {
     tuples.emplace_back(tuple_temp, rid_temp);
   }
-
+  // Update the table
+  for (auto &next_tuple : tuples) {
+    Tuple updated_tuple = GenerateUpdatedTuple(next_tuple.first);
+    // The updated tuple and the old tuple has the same RID
+    table_->UpdateTuple(updated_tuple, next_tuple.second, exec_ctx_->GetTransaction());
+    // Update indexes on each insertion
+    // By deleting the old index entry and insert the updated one
+    for (auto index_info : index_info_vec_) {
+      index_info->index_->DeleteEntry(
+          next_tuple.first.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
+          next_tuple.second, exec_ctx_->GetTransaction());
+      index_info->index_->InsertEntry(
+          updated_tuple.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
+          next_tuple.second, exec_ctx_->GetTransaction());
+    }
+  }
+  // The query plan does not produce any tuple, so always returns false
   return false;
 }
 
