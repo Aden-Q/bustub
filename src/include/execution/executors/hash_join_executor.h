@@ -78,9 +78,6 @@ class HashJoinTable {
     /** Create an iterator for the hash join map */
     explicit Iterator(std::unordered_map<HashJoinKey, HashJoinValue>::const_iterator iter) : iter_{iter} {}
 
-    /** Default constructor */
-    Iterator();
-
     /** @return The key of the iterator */
     const HashJoinKey &Key() { return iter_->first; }
 

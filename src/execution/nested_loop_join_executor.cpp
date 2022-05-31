@@ -50,7 +50,7 @@ void NestedLoopJoinExecutor::Init() {
       // Otherwise if the predicate evalutes to be true, emit the tuple
       if (plan_->Predicate() == nullptr ||
           plan_->Predicate()->EvaluateJoin(&left_tuple, left_schema, &right_tuple, right_schema).GetAs<bool>()) {
-        // The output tuple
+        // Produce the output tuple
         output_values.clear();
         for (auto &col : output_schema->GetColumns()) {
           output_values.push_back(col.GetExpr()->EvaluateJoin(&left_tuple, left_schema, &right_tuple, right_schema));
