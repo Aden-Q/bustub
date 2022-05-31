@@ -84,6 +84,7 @@ bool HashJoinExecutor::Next(Tuple *tuple, RID *rid) {
       }
     }
   }
+  // No more tuples || No tuples are found
   return false;
 }
 
