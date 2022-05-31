@@ -14,25 +14,22 @@
 
 namespace bustub {
 
-SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNode *plan) : AbstractExecutor(exec_ctx) {
-  plan_ = plan;
-  table_info_ = nullptr;
-}
+SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNode *plan)
+    : AbstractExecutor(exec_ctx),
+      plan_(plan),
+      table_info_(exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid())),
+      table_itr_(table_info_->table_->Begin(exec_ctx_->GetTransaction())) {}
 
 void SeqScanExecutor::Init() {
-  // The sequential scan plan node carries a table Id to query from
-  // We then use that table get to retrieve the table from the system catalog
-  // Then retrieve the table
-  table_info_ = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid());
-  // Get an iterator for the table
-  table_itr_ = std::make_unique<TableIterator>(table_info_->table_->Begin(exec_ctx_->GetTransaction()));
+  // ** Very important step, this will be used in the nested loop join !!!
+  table_itr_ = table_info_->table_->Begin(exec_ctx_->GetTransaction());
 }
 
 bool SeqScanExecutor::Next(Tuple *tuple, RID *rid) {
   // If no more tuples, return false
-  BUSTUB_ASSERT(table_info_ != nullptr && table_itr_ != nullptr, "Either the table info or iterator is nullptr.");
-  TableHeap *table_ = table_info_->table_.get();
-  if (*table_itr_ == table_->End()) {
+  BUSTUB_ASSERT(table_info_ != nullptr, "Either the table info or iterator is nullptr.");
+  TableHeap *table = table_info_->table_.get();
+  if (table_itr_ == table->End()) {
     return false;
   }
   // Produce the next tuple
@@ -44,12 +41,12 @@ bool SeqScanExecutor::Next(Tuple *tuple, RID *rid) {
   // given by the query plan, to evaluate a column value for that tuple
   // And populate each column
   for (size_t col_idx = 0; col_idx < output_schema->GetColumnCount(); col_idx++) {
-    vals.push_back(output_schema->GetColumn(col_idx).GetExpr()->Evaluate(&(**table_itr_), &schema));
+    vals.emplace_back(output_schema->GetColumn(col_idx).GetExpr()->Evaluate(&(*table_itr_), &schema));
   }
   // Populate the tuple (fill the content with the current row)
   *tuple = Tuple(vals, output_schema);
-  *rid = (*table_itr_)->GetRid();
-  (*table_itr_)++;
+  *rid = table_itr_->GetRid();
+  table_itr_++;
   // Evaluate the (optional) predicate given by the query plan node
   const AbstractExpression *predicate = plan_->GetPredicate();
   if (predicate != nullptr && !predicate->Evaluate(tuple, output_schema).GetAs<bool>()) {

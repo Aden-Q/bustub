@@ -27,7 +27,6 @@ InsertExecutor::InsertExecutor(ExecutorContext *exec_ctx, const InsertPlanNode *
 void InsertExecutor::Init() {
   // Query table metadata by OID
   table_info_ = exec_ctx_->GetCatalog()->GetTable(plan_->TableOid());
-  index_info_vec_ = exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_);
   // If there is a child executor (at most one child plan is allowed), init the child
   if (child_executor_ != nullptr) {
     child_executor_->Init();
@@ -39,34 +38,42 @@ bool InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   BUSTUB_ASSERT(table_info_ != nullptr, "Table info is a nullptr.");
   TableHeap *table = table_info_->table_.get();
   const Schema &schema = table_info_->schema_;
-  Tuple tuple_temp;
-  RID rid_temp;
-  std::vector<std::pair<Tuple, RID>> tuples;
   // Query the plan to check the type of insert
   if (plan_->IsRawInsert()) {
     // Raw insert
     // It is possible that there are multiple records to be inserted
     // Read the tuples to be inserted
     for (auto &vals : plan_->RawValues()) {
-      tuple_temp = Tuple(vals, &schema);
-      tuples.emplace_back(tuple_temp, *rid);
+      Tuple tuple_temp = Tuple(vals, &schema);
+      RID rid_temp = tuple_temp.GetRid();
+      if (table->InsertTuple(tuple_temp, &rid_temp, exec_ctx_->GetTransaction())) {
+        // Update indexes for each inserted row
+        for (auto index_info : exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_)) {
+          index_info->index_->InsertEntry(
+              tuple_temp.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
+              rid_temp, exec_ctx_->GetTransaction());
+        }
+      } else {
+        throw Exception(ExceptionType::OUT_OF_MEMORY, "InsertExecutor: not enough space.");
+      }
     }
   } else {
     // Insert from a sub-query
     // First execute the child plan
     // Get the results from the child executor
+    Tuple tuple_temp;
+    RID rid_temp;
     while (child_executor_->Next(&tuple_temp, &rid_temp)) {
-      tuples.emplace_back(tuple_temp, rid_temp);
-    }
-  }
-  // Insert into the table
-  for (auto &next_tuple : tuples) {
-    table->InsertTuple(next_tuple.first, &next_tuple.second, exec_ctx_->GetTransaction());
-    // Update indexes for each inserted row
-    for (auto index_info : index_info_vec_) {
-      index_info->index_->InsertEntry(
-          next_tuple.first.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
-          next_tuple.second, exec_ctx_->GetTransaction());
+      if (table->InsertTuple(tuple_temp, &rid_temp, exec_ctx_->GetTransaction())) {
+        // Update indexes for each inserted row
+        for (auto index_info : exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_)) {
+          index_info->index_->InsertEntry(
+              tuple_temp.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
+              rid_temp, exec_ctx_->GetTransaction());
+        }
+      } else {
+        throw Exception(ExceptionType::OUT_OF_MEMORY, "InsertExecutor: not enough space.");
+      }
     }
   }
   return false;

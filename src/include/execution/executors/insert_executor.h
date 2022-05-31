@@ -62,8 +62,6 @@ class InsertExecutor : public AbstractExecutor {
   const InsertPlanNode *plan_;
   /** metadata about a table (to be inserted into) */
   TableInfo *table_info_;
-  /** metadata about all the table indexes */
-  std::vector<IndexInfo *> index_info_vec_;
   /** Child executor */
   std::unique_ptr<AbstractExecutor> child_executor_;
 };

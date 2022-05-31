@@ -22,7 +22,7 @@ NestedLoopJoinExecutor::NestedLoopJoinExecutor(ExecutorContext *exec_ctx, const 
   left_executor_ = std::move(left_executor);
   right_executor_ = std::move(right_executor);
   // Give the result array some initial capacity
-  results_.reserve(50);
+  results_.reserve(20);
 }
 
 void NestedLoopJoinExecutor::Init() {
@@ -52,7 +52,7 @@ void NestedLoopJoinExecutor::Init() {
         // Produce the output tuple
         output_values.clear();
         for (auto &col : output_schema->GetColumns()) {
-          output_values.push_back(col.GetExpr()->EvaluateJoin(&left_tuple, left_schema, &right_tuple, right_schema));
+          output_values.emplace_back(col.GetExpr()->EvaluateJoin(&left_tuple, left_schema, &right_tuple, right_schema));
         }
         Tuple tuple_temp = Tuple(output_values, output_schema);
         results_.emplace_back(tuple_temp, tuple_temp.GetRid());

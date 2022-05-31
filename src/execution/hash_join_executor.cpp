@@ -21,6 +21,7 @@ HashJoinExecutor::HashJoinExecutor(ExecutorContext *exec_ctx, const HashJoinPlan
   plan_ = plan;
   left_child_ = std::move(left_child);
   right_child_ = std::move(right_child);
+  join_results_.reserve(20);
 }
 
 void HashJoinExecutor::Init() {
@@ -41,18 +42,14 @@ void HashJoinExecutor::Init() {
         static_cast<const ColumnValueExpression *>(plan_->LeftJoinKeyExpression())->Evaluate(&left_tuple, left_schema);
     // Construct the value for a hash table entry
     HashJoinValue left_hash_value;
-    left_hash_value.tuples_.push_back(left_tuple);
+    left_hash_value.tuples_.emplace_back(left_tuple);
     hash_table_.Insert(left_hash_key, left_hash_value);
   }
-}
-
-bool HashJoinExecutor::Next(Tuple *tuple, RID *rid) {
   // Phase #2: Probe and store the results
   Tuple right_tuple;
   RID right_rid;
   HashJoinKey right_hash_key;
   const Schema *output_schema = GetOutputSchema();
-  const Schema *left_schema = left_child_->GetOutputSchema();
   const Schema *right_schema = right_child_->GetOutputSchema();
   std::vector<Value> output_values;
   while (right_child_->Next(&right_tuple, &right_rid)) {
@@ -64,28 +61,31 @@ bool HashJoinExecutor::Next(Tuple *tuple, RID *rid) {
       // If the key exists
       // Compare with all the tuples in this bucket
       for (const auto &left_tuple_temp : hash_table_.GetValue(right_hash_key).tuples_) {
-        // Compare left join key and right join key
-        // If they are equal, construct a result tuple
-        // and append it into the result set
-        Value left_key_temp = static_cast<const ColumnValueExpression *>(plan_->LeftJoinKeyExpression())
-                                  ->Evaluate(&left_tuple_temp, left_schema);
-        if (left_key_temp.CompareEquals(right_hash_key.column_value_) == CmpBool::CmpTrue) {
-          // If equal, construct an output tuple
-          output_values.clear();
-          for (auto &col : output_schema->GetColumns()) {
-            output_values.push_back(
-                col.GetExpr()->EvaluateJoin(&left_tuple_temp, left_schema, &right_tuple, right_schema));
-          }
-          // Once a tuple is found, return
-          *tuple = Tuple(output_values, output_schema);
-          *rid = tuple->GetRid();
-          return true;
+        // Combine and produce a tuple as a join result
+
+        output_values.clear();
+        for (auto &col : output_schema->GetColumns()) {
+          output_values.emplace_back(
+              col.GetExpr()->EvaluateJoin(&left_tuple_temp, left_schema, &right_tuple, right_schema));
         }
+        // Once a tuple is found, store it
+        join_results_.emplace_back(Tuple(output_values, output_schema));
       }
     }
   }
-  // No more tuples || No tuples are found
-  return false;
+  // Initialize the result iterator
+  join_results_iter_ = join_results_.begin();
+}
+
+bool HashJoinExecutor::Next(Tuple *tuple, RID *rid) {
+  if (join_results_iter_ == join_results_.end()) {
+    // No more tuples
+    return false;
+  }
+  *tuple = *join_results_iter_;
+  *rid = tuple->GetRid();
+  ++join_results_iter_;
+  return true;
 }
 
 }  // namespace bustub

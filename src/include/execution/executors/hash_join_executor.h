@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/util/hash_util.h"
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
 #include "execution/expressions/column_value_expression.h"
@@ -24,7 +25,46 @@
 #include "storage/table/tuple.h"
 
 namespace bustub {
+/** HashJoinKey represents a key in a hash join operation */
+struct HashJoinKey {
+  /** A single attribute to be joined on  */
+  Value column_value_;
 
+  /**
+   * Compare two hash join keys for equality
+   * @param other the other hash join key to be compared with
+   * @return `true` if both hash join key have
+   */
+  bool operator==(const HashJoinKey &other) const {
+    return column_value_.CompareEquals(other.column_value_) == CmpBool::CmpTrue;
+  }
+};
+
+/** HashJoinValue represents a value of an hash table entry */
+struct HashJoinValue {
+  /** The values are full tuples with the same hash key */
+  std::vector<Tuple> tuples_;
+};
+
+}  // namespace bustub
+
+namespace std {
+
+/** Implements std::hash on HashJoinKey */
+template <>
+struct hash<bustub::HashJoinKey> {
+  std::size_t operator()(const bustub::HashJoinKey &hash_key) const {
+    size_t curr_hash = 0;
+    if (!hash_key.column_value_.IsNull()) {
+      curr_hash = bustub::HashUtil::CombineHashes(curr_hash, bustub::HashUtil::HashValue(&hash_key.column_value_));
+    }
+    return curr_hash;
+  }
+};
+
+}  // namespace std
+
+namespace bustub {
 /**
  * A simple hash table that has all the necessary functionality for hash join.
  */
@@ -147,6 +187,10 @@ class HashJoinExecutor : public AbstractExecutor {
   HashJoinTable hash_table_;
   // The iterator is not required because the join phase is not a sequential scan
   // HashJoinTable::Iterator hash_table_iter_;
+  /** Store join results */
+  std::vector<Tuple> join_results_;
+  /** */
+  std::vector<Tuple>::iterator join_results_iter_;
 };
 
 }  // namespace bustub

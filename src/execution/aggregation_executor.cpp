@@ -56,7 +56,7 @@ bool AggregationExecutor::Next(Tuple *tuple, RID *rid) {
       // Emit it
       output_values.clear();
       for (auto &col : output_schema->GetColumns()) {
-        output_values.push_back(
+        output_values.emplace_back(
             col.GetExpr()->EvaluateAggregate(aht_iterator_.Key().group_bys_, aht_iterator_.Val().aggregates_));
       }
       *tuple = Tuple(output_values, output_schema);
