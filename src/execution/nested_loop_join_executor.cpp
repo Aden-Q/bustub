@@ -22,7 +22,7 @@ NestedLoopJoinExecutor::NestedLoopJoinExecutor(ExecutorContext *exec_ctx, const 
   left_executor_ = std::move(left_executor);
   right_executor_ = std::move(right_executor);
   // Give the result array some initial capacity
-  results_.reserve(20);
+  results_.reserve(50);
 }
 
 void NestedLoopJoinExecutor::Init() {
@@ -60,18 +60,18 @@ void NestedLoopJoinExecutor::Init() {
     }
   }
   // Initialize the iterator
-  results_itr_ = results_.begin();
+  results_iter_ = results_.begin();
 }
 
 bool NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) {
-  if (results_itr_ == results_.end()) {
+  if (results_iter_ == results_.end()) {
     // There is no more tuples
     return false;
   }
-  *tuple = results_itr_->first;
-  *rid = results_itr_->second;
+  *tuple = results_iter_->first;
+  *rid = results_iter_->second;
   // Increment the iterator, pointing to the next tuple
-  results_itr_++;
+  results_iter_++;
   return true;
 }
 

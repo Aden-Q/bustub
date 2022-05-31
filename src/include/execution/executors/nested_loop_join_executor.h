@@ -63,7 +63,7 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
   /** Join results */
   std::vector<std::pair<Tuple, RID>> results_;
   /** An iterator for the join results */
-  std::vector<std::pair<Tuple, RID>>::iterator results_itr_;
+  std::vector<std::pair<Tuple, RID>>::iterator results_iter_;
 };
 
 }  // namespace bustub

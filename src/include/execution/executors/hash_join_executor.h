@@ -13,14 +13,107 @@
 #pragma once
 
 #include <memory>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
+#include "execution/expressions/column_value_expression.h"
 #include "execution/plans/hash_join_plan.h"
 #include "storage/table/tuple.h"
 
 namespace bustub {
+
+/**
+ * A simple hash table that has all the necessary functionality for hash join.
+ */
+class HashJoinTable {
+ public:
+  /**
+   * Construct a new HashJoinTable instance.
+   */
+  HashJoinTable() {}
+
+  /**
+   * Insert a key-value pair into the hash table
+   * @param hash_key the key to be inserted
+   * @param hash_value the value to be inserted
+   */
+  void Insert(const HashJoinKey &hash_key, const HashJoinValue &hash_value) {
+    if (HasKey(hash_key)) {
+      // If the key already exists, append the new value to the end of the old one
+      hash_table_[hash_key].tuples_.insert(hash_table_[hash_key].tuples_.end(), hash_value.tuples_.begin(),
+                                           hash_value.tuples_.end());
+    } else {
+      // The key does not exist
+      hash_table_.insert(std::make_pair(hash_key, hash_value));
+    }
+  }
+
+  /**
+   * Check whether a key exists in the hash table
+   * @param hash_key the key to be checked
+   */
+  bool HasKey(const HashJoinKey &hash_key) {
+    if (hash_table_.count(hash_key) == 0) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Get the value given a key
+   */
+  const HashJoinValue &GetValue(const HashJoinKey &hash_key) {
+    if (!HasKey(hash_key)) {
+      throw Exception(ExceptionType::INVALID, "Hash key does not exist.");
+    }
+    return hash_table_[hash_key];
+  }
+
+  /** An iterator over the hash join table */
+  class Iterator {
+   public:
+    /** Create an iterator for the hash join map */
+    explicit Iterator(std::unordered_map<HashJoinKey, HashJoinValue>::const_iterator iter) : iter_{iter} {}
+
+    /** Default constructor */
+    Iterator();
+
+    /** @return The key of the iterator */
+    const HashJoinKey &Key() { return iter_->first; }
+
+    /** @return The value of the iterator */
+    const HashJoinValue &Value() { return iter_->second; }
+
+    /** @return The iterator before it is incremented */
+    Iterator &operator++() {
+      ++iter_;
+      return *this;
+    }
+
+    /** @return `true` if both iterators are identical */
+    bool operator==(const Iterator &other) { return this->iter_ == other.iter_; }
+
+    /** @return `true` if both iterators are different */
+    bool operator!=(const Iterator &other) { return this->iter_ != other.iter_; }
+
+   private:
+    /** Hash join map */
+    std::unordered_map<HashJoinKey, HashJoinValue>::const_iterator iter_;
+  };
+
+  /** @return Iterator to the start of the hash table */
+  Iterator Begin() { return Iterator{hash_table_.cbegin()}; }
+
+  /** @return Iterator to the end of the hash table */
+  Iterator End() { return Iterator{hash_table_.cend()}; }
+
+ private:
+  /** The hash table is a map from keys to values */
+  std::unordered_map<HashJoinKey, HashJoinValue> hash_table_{};
+};
 
 /**
  * HashJoinExecutor executes a nested-loop JOIN on two tables.
@@ -54,6 +147,18 @@ class HashJoinExecutor : public AbstractExecutor {
  private:
   /** The NestedLoopJoin plan node to be executed. */
   const HashJoinPlanNode *plan_;
+  /** The child executor that produces tuple for the left side of join */
+  std::unique_ptr<AbstractExecutor> left_child_;
+  /** The child executor that produces tuple for the right side of join */
+  std::unique_ptr<AbstractExecutor> right_child_;
+  /** The built hash table */
+  HashJoinTable hash_table_;
+  // The iterator is not required because the join phase is not a sequential scan
+  // HashJoinTable::Iterator hash_table_iter_;
+  /** Join results */
+  std::vector<std::pair<Tuple, RID>> results_;
+  /** An iterator for the join results */
+  std::vector<std::pair<Tuple, RID>>::iterator results_iter_;
 };
 
 }  // namespace bustub

@@ -15,7 +15,9 @@
 #include <utility>
 #include <vector>
 
+#include "common/util/hash_util.h"
 #include "execution/plans/abstract_plan.h"
+#include "storage/table/tuple.h"
 
 namespace bustub {
 
@@ -65,4 +67,44 @@ class HashJoinPlanNode : public AbstractPlanNode {
   const AbstractExpression *right_key_expression_;
 };
 
+/** HashJoinKey represents a key in a hash join operation */
+struct HashJoinKey {
+  /** A single attribute to be joined on  */
+  Value column_value_;
+
+  /**
+   * Compare two hash join keys for equality
+   * @param other the other hash join key to be compared with
+   * @return `true` if both hash join key have
+   */
+  bool operator==(const HashJoinKey &other) const {
+    if (column_value_.CompareEquals(other.column_value_) != CmpBool::CmpTrue) {
+      return false;
+    }
+    return true;
+  }
+};
+
+/** HashJoinValue represents a value of for each hash table entry */
+struct HashJoinValue {
+  /** The values are full tuples with the same hash key */
+  std::vector<Tuple> tuples_;
+};
+
 }  // namespace bustub
+
+namespace std {
+
+/** Implements std::hash on HashJoinKey */
+template <>
+struct hash<bustub::HashJoinKey> {
+  std::size_t operator()(const bustub::HashJoinKey &hash_key) const {
+    size_t curr_hash = 0;
+    if (!hash_key.column_value_.IsNull()) {
+      curr_hash = bustub::HashUtil::CombineHashes(curr_hash, bustub::HashUtil::HashValue(&hash_key.column_value_));
+    }
+    return curr_hash;
+  }
+};
+
+}  // namespace std
