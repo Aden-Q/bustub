@@ -155,10 +155,6 @@ class HashJoinExecutor : public AbstractExecutor {
   HashJoinTable hash_table_;
   // The iterator is not required because the join phase is not a sequential scan
   // HashJoinTable::Iterator hash_table_iter_;
-  /** Join results */
-  std::vector<std::pair<Tuple, RID>> results_;
-  /** An iterator for the join results */
-  std::vector<std::pair<Tuple, RID>>::iterator results_iter_;
 };
 
 }  // namespace bustub
