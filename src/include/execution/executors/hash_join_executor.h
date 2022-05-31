@@ -33,7 +33,7 @@ class HashJoinTable {
   /**
    * Construct a new HashJoinTable instance.
    */
-  HashJoinTable() {}
+  HashJoinTable() = default;
 
   /**
    * Insert a key-value pair into the hash table
@@ -55,12 +55,7 @@ class HashJoinTable {
    * Check whether a key exists in the hash table
    * @param hash_key the key to be checked
    */
-  bool HasKey(const HashJoinKey &hash_key) {
-    if (hash_table_.count(hash_key) == 0) {
-      return false;
-    }
-    return true;
-  }
+  bool HasKey(const HashJoinKey &hash_key) { return !(hash_table_.count(hash_key) == 0); }
 
   /**
    * Get the value given a key

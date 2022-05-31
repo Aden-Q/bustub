@@ -35,7 +35,7 @@ void UpdateExecutor::Init() {
 bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   // Query table to be inserted into
   BUSTUB_ASSERT(table_info_ != nullptr, "Table info is a nullptr.");
-  TableHeap *table_ = table_info_->table_.get();
+  TableHeap *table = table_info_->table_.get();
   // Query table schema
   const Schema &schema = table_info_->schema_;
   Tuple tuple_temp;
@@ -49,7 +49,7 @@ bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   for (auto &next_tuple : tuples) {
     Tuple updated_tuple = GenerateUpdatedTuple(next_tuple.first);
     // The updated tuple and the old tuple has the same RID
-    table_->UpdateTuple(updated_tuple, next_tuple.second, exec_ctx_->GetTransaction());
+    table->UpdateTuple(updated_tuple, next_tuple.second, exec_ctx_->GetTransaction());
     // Update indexes on each insertion
     // By deleting the old index entry and insert the updated one
     for (auto index_info : index_info_vec_) {

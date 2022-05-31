@@ -17,7 +17,7 @@ namespace bustub {
 HashJoinExecutor::HashJoinExecutor(ExecutorContext *exec_ctx, const HashJoinPlanNode *plan,
                                    std::unique_ptr<AbstractExecutor> &&left_child,
                                    std::unique_ptr<AbstractExecutor> &&right_child)
-    : AbstractExecutor(exec_ctx), hash_table_() {
+    : AbstractExecutor(exec_ctx) {
   plan_ = plan;
   left_child_ = std::move(left_child);
   right_child_ = std::move(right_child);
@@ -33,14 +33,14 @@ void HashJoinExecutor::Init() {
   Tuple left_tuple;
   RID left_rid;
   const Schema *left_schema = left_child_->GetOutputSchema();
-  HashJoinKey left_hash_key;
-  HashJoinValue left_hash_value;
   // Phase #1: Build the hash table
   while (left_child_->Next(&left_tuple, &left_rid)) {
     // Get the key by evaluating the left_key_expression
+    HashJoinKey left_hash_key;
     left_hash_key.column_value_ =
         static_cast<const ColumnValueExpression *>(plan_->LeftJoinKeyExpression())->Evaluate(&left_tuple, left_schema);
     // Construct the value for a hash table entry
+    HashJoinValue left_hash_value;
     left_hash_value.tuples_.push_back(left_tuple);
     hash_table_.Insert(left_hash_key, left_hash_value);
   }
@@ -51,7 +51,6 @@ bool HashJoinExecutor::Next(Tuple *tuple, RID *rid) {
   Tuple right_tuple;
   RID right_rid;
   HashJoinKey right_hash_key;
-  HashJoinValue right_hash_value;
   const Schema *output_schema = GetOutputSchema();
   const Schema *left_schema = left_child_->GetOutputSchema();
   const Schema *right_schema = right_child_->GetOutputSchema();
@@ -79,6 +78,7 @@ bool HashJoinExecutor::Next(Tuple *tuple, RID *rid) {
           }
           // Once a tuple is found, return
           *tuple = Tuple(output_values, output_schema);
+          *rid = tuple->GetRid();
           return true;
         }
       }

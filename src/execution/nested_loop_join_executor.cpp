@@ -35,7 +35,6 @@ void NestedLoopJoinExecutor::Init() {
   std::vector<Value> output_values;
   RID left_rid;
   RID right_rid;
-  int64_t cnt = 0;
   left_executor_->Init();
   right_executor_->Init();
   const Schema *left_schema = left_executor_->GetOutputSchema();
@@ -55,7 +54,8 @@ void NestedLoopJoinExecutor::Init() {
         for (auto &col : output_schema->GetColumns()) {
           output_values.push_back(col.GetExpr()->EvaluateJoin(&left_tuple, left_schema, &right_tuple, right_schema));
         }
-        results_.emplace_back(Tuple(output_values, output_schema), RID(cnt++));
+        Tuple tuple_temp = Tuple(output_values, output_schema);
+        results_.emplace_back(tuple_temp, tuple_temp.GetRid());
       }
     }
   }

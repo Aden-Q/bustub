@@ -36,7 +36,7 @@ void DeleteExecutor::Init() {
 bool DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   // Query table to be inserted into
   BUSTUB_ASSERT(table_info_ != nullptr, "Table info is a nullptr.");
-  TableHeap *table_ = table_info_->table_.get();
+  TableHeap *table = table_info_->table_.get();
   // Query table schema
   const Schema &schema = table_info_->schema_;
   Tuple tuple_temp;
@@ -48,7 +48,7 @@ bool DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   }
   // Delete tuples from the table
   for (auto &next_tuple : tuples) {
-    table_->MarkDelete(next_tuple.second, exec_ctx_->GetTransaction());
+    table->MarkDelete(next_tuple.second, exec_ctx_->GetTransaction());
     // Delete from indexes
     for (auto index_info : index_info_vec_) {
       index_info->index_->DeleteEntry(

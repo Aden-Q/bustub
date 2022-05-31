@@ -78,14 +78,11 @@ struct HashJoinKey {
    * @return `true` if both hash join key have
    */
   bool operator==(const HashJoinKey &other) const {
-    if (column_value_.CompareEquals(other.column_value_) != CmpBool::CmpTrue) {
-      return false;
-    }
-    return true;
+    return column_value_.CompareEquals(other.column_value_) == CmpBool::CmpTrue;
   }
 };
 
-/** HashJoinValue represents a value of for each hash table entry */
+/** HashJoinValue represents a value of an hash table entry */
 struct HashJoinValue {
   /** The values are full tuples with the same hash key */
   std::vector<Tuple> tuples_;
