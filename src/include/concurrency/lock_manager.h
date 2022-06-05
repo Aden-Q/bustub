@@ -122,12 +122,18 @@ class LockManager {
   void ClearLock(LockRequestQueue *request_queue, Transaction *txn, const RID &rid);
 
   /**
-   * Clear a lock when aborting
+   * Check whether a shared lock can be granted
    * @param request_queue the request locking queue for the record
    * @param txn the transaction releasing the lock
    */
   bool ValidSharedLock(LockRequestQueue *request_queue, Transaction *txn);
 
+  /**
+   * Check whether an exclusive lock can be granted
+   * @param request_queue the request locking queue for the record
+   * @param txn the transaction releasing the lock
+   */
+  bool ValidExclusiveLock(LockRequestQueue *request_queue, Transaction *txn);
 
  private:
   std::mutex latch_;

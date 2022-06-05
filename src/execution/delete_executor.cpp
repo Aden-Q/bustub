@@ -12,6 +12,7 @@
 
 #include <memory>
 
+#include "concurrency/transaction.h"
 #include "execution/executors/delete_executor.h"
 
 namespace bustub {
@@ -34,7 +35,7 @@ void DeleteExecutor::Init() {
 }
 
 bool DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
-  // Query table to be inserted into
+  // Query table to delete from
   BUSTUB_ASSERT(table_info_ != nullptr, "Table info is a nullptr.");
   TableHeap *table = table_info_->table_.get();
   // Query table schema
@@ -42,18 +43,28 @@ bool DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   Tuple tuple_temp;
   RID rid_temp;
   std::vector<std::pair<Tuple, RID>> tuples;
-  // Get tuples to be updated from a child executor
+  // Get tuples to be deleted from a child executor
   while (child_executor_->Next(&tuple_temp, &rid_temp)) {
     tuples.emplace_back(tuple_temp, rid_temp);
   }
   // Delete tuples from the table
+  LockManager *lock_mgr = GetExecutorContext()->GetLockManager();
+  Transaction *txn = GetExecutorContext()->GetTransaction();
   for (auto &next_tuple : tuples) {
+    // Lock on each tuple to be deleted
+    if (txn->IsSharedLocked(next_tuple.second)) {
+      lock_mgr->LockUpgrade(txn, next_tuple.second);
+    } else {
+      lock_mgr->LockExclusive(txn, next_tuple.second);
+    }
     table->MarkDelete(next_tuple.second, exec_ctx_->GetTransaction());
     // Delete from indexes
     for (auto index_info : index_info_vec_) {
       index_info->index_->DeleteEntry(
           next_tuple.first.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
           next_tuple.second, exec_ctx_->GetTransaction());
+      txn->AppendIndexWriteRecord(IndexWriteRecord(rid_temp, table_info_->oid_, WType::DELETE, next_tuple.first,
+                                                   next_tuple.first, index_info->index_oid_, exec_ctx_->GetCatalog()));
     }
   }
   return false;

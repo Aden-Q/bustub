@@ -41,20 +41,21 @@ bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   Tuple tuple_temp;
   RID rid_temp;
   std::vector<std::pair<Tuple, RID>> tuples;
-  // LockManager *lock_mgr = GetExecutorContext()->GetLockManager();
-  // Transaction *txn = GetExecutorContext()->GetTransaction();
+  LockManager *lock_mgr = GetExecutorContext()->GetLockManager();
+  Transaction *txn = GetExecutorContext()->GetTransaction();
   // Get tuples to be updated from a child executor
   while (child_executor_->Next(&tuple_temp, &rid_temp)) {
-    // if (txn->IsSharedLocked(rid_temp)) {
-    //   lock_mgr->LockUpgrade(txn, rid_temp);
-    // } else {
-    //   lock_mgr->LockExclusive(txn, rid_temp);
-    // }
     // Add the current tuple to the write set of the transaction
     tuples.emplace_back(tuple_temp, rid_temp);
   }
   // Update the table
   for (auto &next_tuple : tuples) {
+    // Lock on each tuple to be updated
+    if (txn->IsSharedLocked(next_tuple.second)) {
+      lock_mgr->LockUpgrade(txn, next_tuple.second);
+    } else {
+      lock_mgr->LockExclusive(txn, next_tuple.second);
+    }
     Tuple updated_tuple = GenerateUpdatedTuple(next_tuple.first);
     // The updated tuple and the old tuple has the same RID
     table->UpdateTuple(updated_tuple, next_tuple.second, exec_ctx_->GetTransaction());
@@ -65,11 +66,14 @@ bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
       index_info->index_->DeleteEntry(
           next_tuple.first.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
           next_tuple.second, exec_ctx_->GetTransaction());
+      txn->AppendIndexWriteRecord(IndexWriteRecord(rid_temp, table_info_->oid_, WType::DELETE, updated_tuple,
+                                                   next_tuple.first, index_info->index_oid_, exec_ctx_->GetCatalog()));
       index_info->index_->InsertEntry(
           updated_tuple.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
           next_tuple.second, exec_ctx_->GetTransaction());
+      txn->AppendIndexWriteRecord(IndexWriteRecord(rid_temp, table_info_->oid_, WType::INSERT, updated_tuple,
+                                                   next_tuple.first, index_info->index_oid_, exec_ctx_->GetCatalog()));
     }
-    // lock_mgr->Unlock(txn, next_tuple.second);
   }
   // The query plan does not produce any tuple, so always returns false
   return false;

@@ -24,7 +24,6 @@ bool LockManager::LockShared(Transaction *txn, const RID &rid) {
   // lock the lock manager to ensure each time only one tranction can
   // be granted/revoked a lock
   std::unique_lock<std::mutex> lock(latch_);
-share_start:
   auto &request_queue = lock_table_[rid];
   // Check some edge cases
   if (txn->GetState() == TransactionState::ABORTED) {
@@ -38,7 +37,6 @@ share_start:
     txn->SetState(TransactionState::ABORTED);
     ClearLock(&request_queue, txn, rid);
     // throw TransactionAbortException(txn->GetTransactionId(), AbortReason::LOCK_ON_SHRINKING);
-    // request_queue.cv_.notify_all();
     return false;
   }
   if (txn->IsExclusiveLocked(rid) || txn->IsSharedLocked(rid)) {
@@ -50,37 +48,38 @@ share_start:
   if (txn->GetIsolationLevel() == IsolationLevel::READ_UNCOMMITTED) {
     txn->SetState(TransactionState::ABORTED);
     ClearLock(&request_queue, txn, rid);
-    // request_queue.cv_.notify_all();
     return false;
   }
-  // Use strict 2PL
-  // Check the request queue for the current RID
-  for (auto lock_request_temp = request_queue.request_queue_.begin();
-       lock_request_temp != request_queue.request_queue_.end();) {
-    if (lock_request_temp->lock_mode_ == LockMode::EXCLUSIVE) {
-      // compare the priority between transacitons
-      if (lock_request_temp->txn_id_ > txn->GetTransactionId()) {
-        // In the case that the current transaction is older
-        // Abort the holding transaction and release the lock
-        TransactionManager::GetTransaction(lock_request_temp->txn_id_)->SetState(TransactionState::ABORTED);
-        // throw TransactionAbortException(lock_request_temp->txn_id_, AbortReason::DEADLOCK);
-        TransactionManager::GetTransaction(lock_request_temp->txn_id_)->GetExclusiveLockSet()->erase(rid);
-        TransactionManager::GetTransaction(lock_request_temp->txn_id_)->GetSharedLockSet()->erase(rid);
-        lock_request_temp = request_queue.request_queue_.erase(lock_request_temp);
-        // request_queue.cv_.notify_all();
-      } else if (lock_request_temp->txn_id_ < txn->GetTransactionId()) {
-        // If there are exclusive locks in the request queue, held by older transactions, then wait
-        InsertIntoRequestQueue(&request_queue, txn->GetTransactionId(), LockMode::SHARED, false);
-        txn->GetSharedLockSet()->emplace(rid);
-        request_queue.cv_.wait(lock);
-        goto share_start;
-      }
+  // Kill all young transactions to perform wound-wait
+  // The flag is necessary to nofify other waiting threads
+  bool flag = false;
+  // Insert the request into the queue
+  InsertIntoRequestQueue(&request_queue, txn->GetTransactionId(), LockMode::SHARED, false);
+  for (auto request_iter = request_queue.request_queue_.begin(); request_iter != request_queue.request_queue_.end();) {
+    // Finish scanning all the requests before the current one
+    if (request_iter->txn_id_ == txn->GetTransactionId() && request_iter->lock_mode_ == LockMode::SHARED) {
+      break;
+    }
+    if (request_iter->lock_mode_ == LockMode::EXCLUSIVE && request_iter->txn_id_ > txn->GetTransactionId()) {
+      TransactionManager::GetTransaction(request_iter->txn_id_)->GetExclusiveLockSet()->erase(rid);
+      TransactionManager::GetTransaction(request_iter->txn_id_)->SetState(TransactionState::ABORTED);
+      request_iter = request_queue.request_queue_.erase(request_iter);
+      flag = true;
     } else {
-      ++lock_request_temp;
+      request_iter++;
     }
   }
-  InsertIntoRequestQueue(&request_queue, txn->GetTransactionId(), LockMode::SHARED, true);
-  // Acquire the lock successfully
+  if (flag) {
+    request_queue.cv_.notify_all();
+  }
+  // Wait until the lock can be granted
+  while (txn->GetState() != TransactionState::ABORTED && !ValidSharedLock(&request_queue, txn)) {
+    request_queue.cv_.wait(lock);
+  }
+  if (txn->GetState() == TransactionState::ABORTED) {
+    return false;
+  }
+  // The locking condition is satisfied, grant the lock
   txn->GetSharedLockSet()->emplace(rid);
   return true;
 }
@@ -91,12 +90,10 @@ bool LockManager::LockExclusive(Transaction *txn, const RID &rid) {
   // lock the lock manager to ensure each time only one tranction can
   // be granted/revoked a lock
   std::unique_lock<std::mutex> lock(latch_);
-exclusive_start:
   auto &request_queue = lock_table_[rid];
   // Check some edge cases
   if (txn->GetState() == TransactionState::ABORTED) {
     // If the current transaction is aborted
-    // Do nothing and return false, lock fails
     return false;
   }
   if (txn->GetState() == TransactionState::SHRINKING) {
@@ -106,7 +103,6 @@ exclusive_start:
     txn->SetState(TransactionState::ABORTED);
     ClearLock(&request_queue, txn, rid);
     // throw TransactionAbortException(txn->GetTransactionId(), AbortReason::LOCK_ON_SHRINKING);
-    // request_queue.cv_.notify_all();
     return false;
   }
   if (txn->IsExclusiveLocked(rid)) {
@@ -115,42 +111,46 @@ exclusive_start:
     // We choose to do nothing and return true, pretending the lock is acquired successfully
     return true;
   }
-  // Use 2PL
-  // Check the request queue for the current RID
-  for (auto lock_request_temp = request_queue.request_queue_.begin();
-       lock_request_temp != request_queue.request_queue_.end();) {
-    // compare the priority between transacitons
-    if (lock_request_temp->txn_id_ > txn->GetTransactionId()) {
-      // In the case that the current transaction is older
-      // Abort the holding transaction and release the lock
-      // Remove locks
-      TransactionManager::GetTransaction(lock_request_temp->txn_id_)->SetState(TransactionState::ABORTED);
-      // throw TransactionAbortException(lock_request_temp->txn_id_, AbortReason::DEADLOCK);
-      TransactionManager::GetTransaction(lock_request_temp->txn_id_)->GetExclusiveLockSet()->erase(rid);
-      TransactionManager::GetTransaction(lock_request_temp->txn_id_)->GetSharedLockSet()->erase(rid);
-      lock_request_temp = request_queue.request_queue_.erase(lock_request_temp);
-      // request_queue.cv_.notify_all();
-    } else if (lock_request_temp->txn_id_ < txn->GetTransactionId()) {
-      InsertIntoRequestQueue(&request_queue, txn->GetTransactionId(), LockMode::EXCLUSIVE, false);
-      txn->GetExclusiveLockSet()->emplace(rid);
-      // If there are exclusive locks in the request queue, held by older transactions, then wait
-
-
-      request_queue.cv_.wait(lock);
-      goto exclusive_start;
+  // Kill all young transactions to perform wound-wait
+  // The flag is necessary to nofify other waiting threads
+  bool flag = false;
+  // Insert the request into the queue
+  InsertIntoRequestQueue(&request_queue, txn->GetTransactionId(), LockMode::EXCLUSIVE, false);
+  for (auto request_iter = request_queue.request_queue_.begin(); request_iter != request_queue.request_queue_.end();) {
+    // Finish scanning all the requests before the current one
+    if (request_iter->txn_id_ == txn->GetTransactionId() && request_iter->lock_mode_ == LockMode::EXCLUSIVE) {
+      break;
+    }
+    if (request_iter->txn_id_ > txn->GetTransactionId()) {
+      if (request_iter->lock_mode_ == LockMode::SHARED) {
+        TransactionManager::GetTransaction(request_iter->txn_id_)->GetSharedLockSet()->erase(rid);
+      } else {
+        TransactionManager::GetTransaction(request_iter->txn_id_)->GetExclusiveLockSet()->erase(rid);
+      }
+      TransactionManager::GetTransaction(request_iter->txn_id_)->SetState(TransactionState::ABORTED);
+      request_iter = request_queue.request_queue_.erase(request_iter);
+      flag = true;
     } else {
-      ++lock_request_temp;
+      request_iter++;
     }
   }
-  InsertIntoRequestQueue(&request_queue, txn->GetTransactionId(), LockMode::EXCLUSIVE, true);
-  // Acquire the lock successfully
+  if (flag) {
+    request_queue.cv_.notify_all();
+  }
+  // Wait until the lock can be granted
+  while (txn->GetState() != TransactionState::ABORTED && !ValidExclusiveLock(&request_queue, txn)) {
+    request_queue.cv_.wait(lock);
+  }
+  if (txn->GetState() == TransactionState::ABORTED) {
+    return false;
+  }
+  // The locking condition is satisfied, grant the lock
   txn->GetExclusiveLockSet()->emplace(rid);
   return true;
 }
 
 bool LockManager::LockUpgrade(Transaction *txn, const RID &rid) {
   std::unique_lock<std::mutex> lock(latch_);
-upgrade_start:
   auto &request_queue = lock_table_[rid];
   // Check some edge cases
   if (txn->GetState() == TransactionState::ABORTED) {
@@ -165,7 +165,6 @@ upgrade_start:
     txn->SetState(TransactionState::ABORTED);
     ClearLock(&request_queue, txn, rid);
     // throw TransactionAbortException(txn->GetTransactionId(), AbortReason::LOCK_ON_SHRINKING);
-    // request_queue->second.cv_.notify_all();
     return false;
   }
   if (txn->IsExclusiveLocked(rid)) {
@@ -185,46 +184,52 @@ upgrade_start:
     txn->SetState(TransactionState::ABORTED);
     ClearLock(&request_queue, txn, rid);
     // throw TransactionAbortException(txn->GetTransactionId(), AbortReason::UPGRADE_CONFLICT);
-    // request_queue.cv_.notify_all();
     return false;
   }
   request_queue.upgrading_ = txn->GetTransactionId();
-  // Find the lock held by txn first
-  // Check the request queue for the current RID
-  for (auto lock_request_temp = request_queue.request_queue_.begin();
-       lock_request_temp != request_queue.request_queue_.end();) {
-    // compare the priority between transacitons
-    if (lock_request_temp->txn_id_ > txn->GetTransactionId()) {
-      // In the case that the current transaction is older
-      // Abort the holding transaction and release the lock
-      // Remove locks
-      // throw TransactionAbortException(lock_request_temp->txn_id_, AbortReason::DEADLOCK);
-      TransactionManager::GetTransaction(lock_request_temp->txn_id_)->SetState(TransactionState::ABORTED);
-      TransactionManager::GetTransaction(lock_request_temp->txn_id_)->GetExclusiveLockSet()->erase(rid);
-      TransactionManager::GetTransaction(lock_request_temp->txn_id_)->GetSharedLockSet()->erase(rid);
-      lock_request_temp = request_queue.request_queue_.erase(lock_request_temp);
-      // request_queue.cv_.notify_all();
-    } else if (lock_request_temp->txn_id_ < txn->GetTransactionId()) {
-      request_queue.cv_.wait(lock);
-      // After being waken up, need to recheck because it is possibly that some request is removed
-      // from the queue
-      goto upgrade_start;
+  // Kill all young transactions to perform wound-wait
+  // The flag is necessary to nofify other waiting threads
+  bool flag = false;
+  // Insert the request into the queue
+  InsertIntoRequestQueue(&request_queue, txn->GetTransactionId(), LockMode::EXCLUSIVE, false);
+  for (auto request_iter = request_queue.request_queue_.begin(); request_iter != request_queue.request_queue_.end();) {
+    // Finish scanning all the requests before the current one
+    if (request_iter->txn_id_ == txn->GetTransactionId() && request_iter->lock_mode_ == LockMode::SHARED) {
+      if (request_iter->lock_mode_ == LockMode::SHARED) {
+        TransactionManager::GetTransaction(request_iter->txn_id_)->GetSharedLockSet()->erase(rid);
+      } else {
+        TransactionManager::GetTransaction(request_iter->txn_id_)->GetExclusiveLockSet()->erase(rid);
+      }
+      request_iter = request_queue.request_queue_.erase(request_iter);
+      flag = true;
+    } else if (request_iter->txn_id_ > txn->GetTransactionId()) {
+      if (request_iter->lock_mode_ == LockMode::SHARED) {
+        TransactionManager::GetTransaction(request_iter->txn_id_)->GetSharedLockSet()->erase(rid);
+      } else {
+        TransactionManager::GetTransaction(request_iter->txn_id_)->GetExclusiveLockSet()->erase(rid);
+      }
+      TransactionManager::GetTransaction(request_iter->txn_id_)->SetState(TransactionState::ABORTED);
+      request_iter = request_queue.request_queue_.erase(request_iter);
+      flag = true;
     } else {
-      ++lock_request_temp;
+      request_iter++;
     }
   }
-  // At the end of the loop
-  // All newer transactions have been aborted
-  // All older transactions have released the locks
-  // The request queue has size 1, containing only the shared lock by txn
-  BUSTUB_ASSERT(request_queue.request_queue_.size() == 1, "There are still other locks in the queue.");
-  auto &lock_request = request_queue.request_queue_.front();
-  BUSTUB_ASSERT(lock_request.lock_mode_ == LockMode::SHARED, "The lock is not in shared mode.");
+  if (flag) {
+    request_queue.cv_.notify_all();
+  }
+  // Wait until the lock can be granted, should wait until the current request is in front of the queue
+  while (txn->GetState() != TransactionState::ABORTED && !ValidExclusiveLock(&request_queue, txn)) {
+    request_queue.cv_.wait(lock);
+  }
+  if (txn->GetState() == TransactionState::ABORTED) {
+    request_queue.upgrading_ = INVALID_TXN_ID;
+    return false;
+  }
+  // The locking condition is satisfied, upgrade the lock
   // Upgrade the lock, change the mode
-  lock_request.lock_mode_ = LockMode::EXCLUSIVE;
   txn->GetSharedLockSet()->erase(rid);
   txn->GetExclusiveLockSet()->emplace(rid);
-  // Upgrade successfully
   request_queue.upgrading_ = INVALID_TXN_ID;
   return true;
 }
@@ -257,7 +262,7 @@ bool LockManager::Unlock(Transaction *txn, const RID &rid) {
 void LockManager::InsertIntoRequestQueue(LockRequestQueue *request_queue, txn_id_t txn_id, LockMode lock_mode,
                                          bool granted) {
   for (auto &request_iter : request_queue->request_queue_) {
-    if (request_iter.txn_id_ == txn_id) {
+    if (request_iter.txn_id_ == txn_id && request_iter.lock_mode_ == lock_mode) {
       // The request already exists
       // Do nothing
       request_iter.granted_ = granted;
@@ -280,6 +285,7 @@ void LockManager::ClearLock(LockRequestQueue *request_queue, Transaction *txn, c
     if (request_iter->txn_id_ == txn->GetTransactionId()) {
       // Clear transaction's lock set
       request_iter = request_queue->request_queue_.erase(request_iter);
+      return;
     }
     ++request_iter;
   }
@@ -287,13 +293,19 @@ void LockManager::ClearLock(LockRequestQueue *request_queue, Transaction *txn, c
 
 bool LockManager::ValidSharedLock(LockRequestQueue *request_queue, Transaction *txn) {
   for (auto &iter : request_queue->request_queue_) {
-    if (iter.txn_id_ == txn->GetTransactionId()) {
+    if (iter.txn_id_ == txn->GetTransactionId() && iter.lock_mode_ == LockMode::SHARED) {
       return true;
-    } else if (iter.lock_mode_ == LockMode::EXCLUSIVE) {
+    }
+    if (iter.lock_mode_ == LockMode::EXCLUSIVE) {
       return false;
     }
   }
   return true;
+}
+
+bool LockManager::ValidExclusiveLock(LockRequestQueue *request_queue, Transaction *txn) {
+  return request_queue->request_queue_.front().txn_id_ == txn->GetTransactionId() &&
+         request_queue->request_queue_.front().lock_mode_ == LockMode::EXCLUSIVE;
 }
 
 }  // namespace bustub

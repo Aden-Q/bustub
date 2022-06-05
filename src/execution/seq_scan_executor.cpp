@@ -41,15 +41,18 @@ bool SeqScanExecutor::Next(Tuple *tuple, RID *rid) {
   // given by the query plan, to evaluate a column value for that tuple
   // And populate each column
   // Acquire the shared lock
-  // LockManager *lock_mgr = GetExecutorContext()->GetLockManager();
-  // Transaction *txn = GetExecutorContext()->GetTransaction();
-  // lock_mgr->LockShared(txn, table_itr_->GetRid());
+  LockManager *lock_mgr = GetExecutorContext()->GetLockManager();
+  Transaction *txn = GetExecutorContext()->GetTransaction();
+  lock_mgr->LockShared(txn, table_itr_->GetRid());
   for (size_t col_idx = 0; col_idx < output_schema->GetColumnCount(); col_idx++) {
     vals.emplace_back(output_schema->GetColumn(col_idx).GetExpr()->Evaluate(&(*table_itr_), &schema));
   }
   // Populate the tuple (fill the content with the current row)
   *tuple = Tuple(vals, output_schema);
   *rid = table_itr_->GetRid();
+  if (txn->GetIsolationLevel() != IsolationLevel::REPEATABLE_READ) {
+    lock_mgr->Unlock(txn, table_itr_->GetRid());
+  }
   table_itr_++;
   // Release the shared lock
   // lock_mgr->Unlock(txn, *rid);
