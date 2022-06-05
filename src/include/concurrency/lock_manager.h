@@ -104,6 +104,31 @@ class LockManager {
    */
   bool Unlock(Transaction *txn, const RID &rid);
 
+  /**
+   * Insert a request into a request queue
+   * @param request_queue the request locking queue for the record
+   * @param txn_id the transaction id
+   * @param lock_mode the lock mode
+   * @param granted indicates whether the lock is granted or not
+   */
+  void InsertIntoRequestQueue(LockRequestQueue *request_queue, txn_id_t txn_id, LockMode lock_mode, bool granted);
+
+  /**
+   * Clear a lock when aborting
+   * @param request_queue the request locking queue for the record
+   * @param txn the transaction releasing the lock
+   * @param rid the RID that is locked by the transaction
+   */
+  void ClearLock(LockRequestQueue *request_queue, Transaction *txn, const RID &rid);
+
+  /**
+   * Clear a lock when aborting
+   * @param request_queue the request locking queue for the record
+   * @param txn the transaction releasing the lock
+   */
+  bool ValidSharedLock(LockRequestQueue *request_queue, Transaction *txn);
+
+
  private:
   std::mutex latch_;
 

@@ -41,8 +41,16 @@ bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   Tuple tuple_temp;
   RID rid_temp;
   std::vector<std::pair<Tuple, RID>> tuples;
+  // LockManager *lock_mgr = GetExecutorContext()->GetLockManager();
+  // Transaction *txn = GetExecutorContext()->GetTransaction();
   // Get tuples to be updated from a child executor
   while (child_executor_->Next(&tuple_temp, &rid_temp)) {
+    // if (txn->IsSharedLocked(rid_temp)) {
+    //   lock_mgr->LockUpgrade(txn, rid_temp);
+    // } else {
+    //   lock_mgr->LockExclusive(txn, rid_temp);
+    // }
+    // Add the current tuple to the write set of the transaction
     tuples.emplace_back(tuple_temp, rid_temp);
   }
   // Update the table
@@ -50,6 +58,7 @@ bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
     Tuple updated_tuple = GenerateUpdatedTuple(next_tuple.first);
     // The updated tuple and the old tuple has the same RID
     table->UpdateTuple(updated_tuple, next_tuple.second, exec_ctx_->GetTransaction());
+    // txn->AppendTableWriteRecord(TableWriteRecord(next_tuple.second, WType::UPDATE, updated_tuple, table));
     // Update indexes on each insertion
     // By deleting the old index entry and insert the updated one
     for (auto index_info : index_info_vec_) {
@@ -60,6 +69,7 @@ bool UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
           updated_tuple.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
           next_tuple.second, exec_ctx_->GetTransaction());
     }
+    // lock_mgr->Unlock(txn, next_tuple.second);
   }
   // The query plan does not produce any tuple, so always returns false
   return false;

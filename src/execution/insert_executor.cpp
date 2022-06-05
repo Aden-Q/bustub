@@ -38,6 +38,8 @@ bool InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
   BUSTUB_ASSERT(table_info_ != nullptr, "Table info is a nullptr.");
   TableHeap *table = table_info_->table_.get();
   const Schema &schema = table_info_->schema_;
+  // LockManager *lock_mgr = GetExecutorContext()->GetLockManager();
+  // Transaction *txn = GetExecutorContext()->GetTransaction();
   // Query the plan to check the type of insert
   if (plan_->IsRawInsert()) {
     // Raw insert
@@ -47,11 +49,14 @@ bool InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
       Tuple tuple_temp = Tuple(vals, &schema);
       RID rid_temp = tuple_temp.GetRid();
       if (table->InsertTuple(tuple_temp, &rid_temp, exec_ctx_->GetTransaction())) {
+        // txn->AppendTableWriteRecord(TableWriteRecord(rid_temp, WType::INSERT, tuple_temp, table));
         // Update indexes for each inserted row
         for (auto index_info : exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_)) {
           index_info->index_->InsertEntry(
               tuple_temp.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
               rid_temp, exec_ctx_->GetTransaction());
+          // txn->AppendIndexWriteRecord(IndexWriteRecord(rid_temp, table_info_->oid_, WType::INSERT, tuple_temp,
+          //                                              tuple_temp, index_info->index_oid_, exec_ctx_->GetCatalog()));
         }
       } else {
         throw Exception(ExceptionType::OUT_OF_MEMORY, "InsertExecutor: not enough space.");
@@ -65,11 +70,14 @@ bool InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) {
     RID rid_temp;
     while (child_executor_->Next(&tuple_temp, &rid_temp)) {
       if (table->InsertTuple(tuple_temp, &rid_temp, exec_ctx_->GetTransaction())) {
+        // txn->AppendTableWriteRecord(TableWriteRecord(rid_temp, WType::INSERT, tuple_temp, table));
         // Update indexes for each inserted row
         for (auto index_info : exec_ctx_->GetCatalog()->GetTableIndexes(table_info_->name_)) {
           index_info->index_->InsertEntry(
               tuple_temp.KeyFromTuple(schema, *index_info->index_->GetKeySchema(), index_info->index_->GetKeyAttrs()),
               rid_temp, exec_ctx_->GetTransaction());
+          // txn->AppendIndexWriteRecord(IndexWriteRecord(rid_temp, table_info_->oid_, WType::INSERT, tuple_temp,
+          //                                              tuple_temp, index_info->index_oid_, exec_ctx_->GetCatalog()));
         }
       } else {
         throw Exception(ExceptionType::OUT_OF_MEMORY, "InsertExecutor: not enough space.");
